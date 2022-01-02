@@ -3,21 +3,18 @@ from drone import Drone
 from typing import Tuple
 import numpy as np
 import matplotlib.pyplot as plt
-np.random.seed(seed = 1)
 
-class CustomController(FlightController):
 
+class EuclideanCustomController(FlightController):
     def __init__(self):
         """
         Add params for the controller:
         """
         self.parameters = [0,0,0,0]
-        self.k_y = self.parameters[0]  # constant
-        self.b_y = self.parameters[1]  # drag coeff
-        self.k_theta = self.parameters[2]
-        self.b_theta = self.parameters[3]
-        self.T_eq = 0.5  # equilibrium thrust
-        self.thrust_angle = 0.3  # angle to move to, maybe tune this?
+        self.C = self.parameters[0]  # constant
+        self.X = self.parameters[1]  # drag coeff
+        self.Y = self.parameters[2]
+        self.S = self.parameters[3]
         self.pop_size = 4**4 # num of solutions
         self.number_generations = 1
 
@@ -26,21 +23,25 @@ class CustomController(FlightController):
         target = drone.get_next_target()  
         rewards = 0
         r_min = np.sqrt((drone.x-target[0])**2+(drone.y-target[1])**2) 
+        count = 0
         for t in range(self.get_max_simulation_steps()): 
             drone.set_thrust(np.clip(self.get_thrusts(drone, parameters), 0, 1))
             target_hit = drone.step_simulation(self.get_time_interval())
             r = np.sqrt((drone.x-target[0])**2+(drone.y-target[1])**2)
             if target_hit:
-                rewards+=100
+                rewards+=300
                 target = drone.get_next_target()  
                 r_min = np.sqrt((drone.x-target[0])**2+(drone.y-target[1])**2) 
-                print("HIT")
-            elif r<r_min:
+                count +=1
+            elif r<(r_min-0.1):
                 rewards+=1/r # this line is the old version
                 r_min = r
             else:
                 rewards -=1/r
-        return rewards, r_min
+        
+        if (count >= 2):
+            print(count, " targets hit!")
+        return rewards, count
     
     def crossover(self, survivors):
         # crossover random pairs of survivors
@@ -60,12 +61,14 @@ class CustomController(FlightController):
     
     def mutate(self, survivors, generation):
         mutated_solutions = np.empty((0,4))
+        
+        mutation_rates = [0.3,5,5,5]
         for i in range(len(survivors[:,0])):
             mutations = np.empty((5,4))
             for g in range(4):
-                sd = 5*(1.5-generation/self.number_generations) 
-                print(sd)
+                sd = mutation_rates[g]*(1.5-generation/self.number_generations) 
                 mutations[:,g] = abs(np.random.normal(survivors[i,g],sd, 5)) #   FIX VARIANCE
+            mutated_solutions[:,0] = np.clip(mutated_solutions[:,0], 0, 1)
             mutated_solutions = np.vstack((mutated_solutions, mutations))
         return mutated_solutions
     
@@ -82,7 +85,7 @@ class CustomController(FlightController):
         if sum(probabilities) == 0:
             probabilities[:] = 1/self.pop_size
         else:
-            probabilities = probabilities/sum(probabilities)
+            probabilities = probabilities**2/sum(probabilities**2)
         # select 10% of population to create next generation
 
         survivor_inds = np.random.choice(solution_inds, int(self.pop_size/8),
@@ -94,12 +97,14 @@ class CustomController(FlightController):
     def train(self, number_of_episodes):
         #start by setting random parameters, for 100 solutions    
         self.number_generations = number_of_episodes
-        k_values = np.linspace(0, 100, int(self.pop_size**0.25))
-        b_values = np.linspace(0,10, int(self.pop_size**0.25))
-        kk_x, bb_x, kk_theta, bb_theta = np.meshgrid(k_values, b_values, k_values, b_values)
-        solutions = np.vstack((kk_x.flatten(), bb_x.flatten(), 
-                               kk_theta.flatten(), bb_theta.flatten()))
+        C_vals = np.linspace(0, 1, int(self.pop_size**0.25)) # hovering constant
+        X_vals = Y_vals = np.linspace(0, 100, int(self.pop_size**0.25)) # direction constants
+        S_vals = np.linspace(0,10, int(self.pop_size**0.25)) # rotation stabalisation constants
+        CC, XX, YY, SS = np.meshgrid(C_vals, X_vals, Y_vals, S_vals)
+        solutions = np.vstack((CC.flatten(), XX.flatten(), 
+                               YY.flatten(), SS.flatten()))
         solutions = solutions.transpose() 
+        survivors = []
         # double up starting values to get kx, bx, k_theta, b_theta     
         average_rewards = []
         gen_closest_approaches = []
@@ -107,38 +112,25 @@ class CustomController(FlightController):
             print(generation)
             simulation_analysis = np.apply_along_axis(self.run_simulation, axis = 1, arr = solutions) 
             #sim analysis is a list of tuples (rewards, r_min)
-            solution_rewards, closest_approaches = simulation_analysis[:,0], simulation_analysis[:,1]
+            solution_rewards, targets_hit = simulation_analysis[:,0], simulation_analysis[:,1]
             survivors = self.select_survivors(solution_rewards, solutions)
             solutions = self.breed_survivors(survivors, generation)
             
             average_rewards.append(np.mean(solution_rewards))
-            gen_closest_approaches.append(min(closest_approaches))
+            gen_closest_approaches.append(np.mean(targets_hit))
         
-        print("training completed")
-        return solutions, average_rewards, gen_closest_approaches
+        return solutions, average_rewards, gen_closest_approaches, survivors
             
     def get_thrusts(self, drone: Drone, parameters) -> Tuple[float, float]:
-        k_y, b_y = parameters[0], parameters[1]
-        k_theta, b_theta = parameters[2], parameters[3]
+        C,X,Y,S = parameters        
         target = drone.get_next_target()
-        dx = target[0] - drone.x
+        dx = (target[0] - drone.x)
         dy = target[1] - drone.y
         
-        if dx<0:
-            thrust_angle = -self.thrust_angle
-        else:
-            thrust_angle = self.thrust_angle
+        T1 = C + X*dx + Y*dy - S*drone.pitch_velocity
+        T2 = C - X*dx + Y*dy + S*drone.pitch_velocity
         
-        if (abs(dx)>drone.game_target_size):
-            T_eq = 1/(2*np.cos(drone.pitch))
-            rotating_thrust = 1*k_theta*(thrust_angle - drone.pitch) - (b_theta*drone.pitch_velocity)
-            thrusts = [T_eq + rotating_thrust, T_eq - rotating_thrust] # CHANGE ME
-            return np.clip(thrusts, 0, 1)
-        else:
-            T_eq = 0.5
-            lifting_thrust = 1*k_y*(dy) - b_y*drone.velocity_y
-            thrusts = [T_eq + lifting_thrust, T_eq + lifting_thrust]
-            return np.clip(thrusts, 0, 1)
+        return np.clip([T1,T2], 0, 1)
         
 
     
@@ -148,20 +140,34 @@ class CustomController(FlightController):
         pass
     
 def run_for(episodes):
-    c = CustomController()
-    sols, gen_rs, rs = c.train(episodes)
-    return gen_rs, sols, rs
+    c = EuclideanCustomController()
+    sols, gen_rs, rs, survivors = c.train(episodes)
+    return gen_rs, sols, rs, survivors
 
 
-"""
-episodes = 30
-gens, sols, rs = run_for(episodes)
-fig, (ax1, ax2) = plt.subplots(2)
-ax1.plot(gens, color = "purple")
-ax3 = ax1.twinx()
-ax3.plot(rs, color = "cyan")
-ax2.scatter(sols[:,0], sols[:,1], color = "g")
-ax2.scatter(sols[:,2], sols[:,3], color = "r")
 
-sol = np.mean(sols, axis = 0)
-"""
+if __name__ == "__main__":
+    episodes = 30
+    gens, sols, rs, survivors = run_for(episodes)
+    
+    sol = np.mean(survivors, axis = 0)
+    
+    
+    fig = plt.figure()
+    gs = fig.add_gridspec(2,2,)
+    rewards = fig.add_subplot(gs[0,:])
+    rewards.plot(gens, color = "purple")
+    rsp = rewards.twinx()
+    rsp.plot(rs, color = "cyan")
+    p01 = fig.add_subplot(gs[1,0])
+    p01.scatter(sols[:,0], sols[:,1], color = "g")
+    p01.scatter(survivors[:,0], survivors[:,1], color = "orange")
+
+    p01.scatter(sol[0], sol[1])
+    p23 = fig.add_subplot(gs[1,1])
+    p23.scatter(sols[:,2], sols[:,3], color = "r")
+    p23.scatter(survivors[:,2], survivors[:,3], color = "orange")
+    p23.scatter(sol[2], sol[3])
+
+
+

@@ -11,8 +11,8 @@ from heuristic_controller import HeuristicController
 from custom_controller import CustomController
 
 def generate_controller() -> FlightController:
-    return HeuristicController() # <--- Replace this with your own written controller
-    # return CustomController()
+    #return HeuristicController() # <--- Replace this with your own written controller
+    return CustomController()
 
 def is_training() -> bool:
     return False # <--- Replace this with True if you want to train, false otherwise
@@ -70,7 +70,7 @@ def main(controller: FlightController):
 
         # --- Begin Physics --- #
         # Get the thrust information from the controller
-        drone.set_thrust(controller.get_thrusts(drone))
+        drone.set_thrust(controller.get_thrusts(drone, [76.29235801, 13.15436051, 32.61730132, 15.70277749])) #changed to add params
         # Update the simulation
         drone.step_simulation(delta_time)
 
