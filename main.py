@@ -10,10 +10,11 @@ from flight_controller import FlightController
 from heuristic_controller import HeuristicController
 from custom_controller import CustomController
 from custom_controller_euc import EuclideanCustomController
+from custom_controller_angled import ThetaCustomController
 
 def generate_controller() -> FlightController:
     #return HeuristicController() # <--- Replace this with your own written controller
-    return EuclideanCustomController()
+    return ThetaCustomController()
 
 def is_training() -> bool:
     return False # <--- Replace this with True if you want to train, false otherwise
@@ -71,7 +72,7 @@ def main(controller: FlightController):
 
         # --- Begin Physics --- # 76.29235801, 13.15436051, 32.61730132, 15.70277749
         # Get the thrust information from the controller
-        drone.set_thrust(controller.get_thrusts(drone, survivors[0,:])) #changed to add params
+        drone.set_thrust(controller.get_thrusts(drone, sol)) #changed to add params
         # Update the simulation
         drone.step_simulation(delta_time)
 

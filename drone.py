@@ -95,7 +95,7 @@ class Drone():
                 self.target_coordinates.pop(0)
                 self.has_reached_target_last_update = True
 
-
+        return self.has_reached_target_last_update
 
 
 

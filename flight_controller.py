@@ -7,7 +7,7 @@ class FlightController():
 
     @classmethod
     def get_max_simulation_steps(self):
-        return 500
+        return 600
     @classmethod
     def get_time_interval(self):
         return 0.01

@@ -33,15 +33,14 @@ class EuclideanCustomController(FlightController):
                 target = drone.get_next_target()  
                 r_min = np.sqrt((drone.x-target[0])**2+(drone.y-target[1])**2) 
                 count +=1
-                print("HIT")
+                
             elif r<(r_min-0.1):
                 rewards+=1/r # this line is the old version
                 r_min = r
             else:
                 rewards -=1/r
-        
-        if (count >= 2):
-            print(count, " targets hit!")
+        print(count, " targets hit!")
+            
         return rewards, count
     
     def crossover(self, survivors):
