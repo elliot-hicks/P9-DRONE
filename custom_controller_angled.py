@@ -5,7 +5,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 
-class EuclideanCustomController(FlightController):
+class ThetaCustomController(FlightController):
     def __init__(self):
         """
         Add params for the controller:
@@ -33,7 +33,6 @@ class EuclideanCustomController(FlightController):
                 target = drone.get_next_target()  
                 r_min = np.sqrt((drone.x-target[0])**2+(drone.y-target[1])**2) 
                 count +=1
-                print("HIT")
             elif r<(r_min-0.1):
                 rewards+=1/r # this line is the old version
                 r_min = r
@@ -126,15 +125,21 @@ class EuclideanCustomController(FlightController):
         C,X,Y,S = parameters        
         target = drone.get_next_target()
         dx = (target[0] - drone.x)
-        dy = target[1] - drone.y
-        
-        T1 = C + X*dx + Y*dy - S*drone.pitch_velocity
-        T2 = C - X*dx + Y*dy + S*drone.pitch_velocity
+        dy = (target[1] - drone.y)
+        try:
+            theta_target = 90 - np.arctan(dy/(dx))
+        except ZeroDivisionError:
+            theta_target = 0
+        try:
+            theta_velocity = 90 - np.arctan(drone.velocity_y/drone.velocity_x)
+        except ZeroDivisionError:
+            theta_velocity = 0
+        theta_rel = theta_target-theta_velocity        
+        T1 = C + X*theta_rel + S*drone.pitch_velocity
+        T2 = C - X*theta_rel + S*drone.pitch_velocity
         
         return np.clip([T1,T2], 0, 1)
-        
-
-    
+            
     def load(self):
         pass
     def save(self):
@@ -148,7 +153,7 @@ def run_for(episodes):
 
 
 if __name__ == "__main__":
-    episodes = 3
+    episodes = 10
     gens, sols, rs, survivors = run_for(episodes)
     
     sol = np.mean(survivors, axis = 0)
