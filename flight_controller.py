@@ -7,7 +7,7 @@ class FlightController():
 
     @classmethod
     def get_max_simulation_steps(self):
-        return 600
+        return 2000
     @classmethod
     def get_time_interval(self):
         return 0.01
@@ -40,10 +40,14 @@ class FlightController():
             Drone: An initial drone object with some programmed target coordinates.
         """
         drone = Drone()
-        drone.add_target_coordinate((0.35, 0.3))
-        drone.add_target_coordinate((-0.35, 0.4))
-        drone.add_target_coordinate((0.5, -0.4))
-        drone.add_target_coordinate((-0.35, 0))
+        drone.add_target_coordinate((0.1, 0.1))
+        drone.add_target_coordinate((0, 0.3))
+        drone.add_target_coordinate((0, -0.1))
+        drone.add_target_coordinate((-0.1, -0.1))
+        drone.add_target_coordinate((0.1, 0.1))
+        drone.add_target_coordinate((0, 0.2))
+        drone.add_target_coordinate((0, -0.1))
+        drone.add_target_coordinate((-0.1, -0.1))
         return drone
 
     @classmethod

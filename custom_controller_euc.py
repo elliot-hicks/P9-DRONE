@@ -147,7 +147,7 @@ def run_for(episodes):
 
 
 if __name__ == "__main__":
-    episodes = 10
+    episodes = 100
     gens, sols, rs, survivors = run_for(episodes)
     
     sol = np.mean(survivors, axis = 0)
