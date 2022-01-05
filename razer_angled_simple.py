@@ -1,3 +1,5 @@
+import time
+s = time.time()
 from flight_controller import FlightController
 from drone import Drone
 from typing import Tuple
@@ -5,11 +7,16 @@ import numpy as np
 import matplotlib.pyplot as plt
 #[ 0.8216812   2.40384327  0.06281146 10.63500319]
 
+
+
+
 class AngledCustomController(FlightController):
     def __init__(self):
         """
         Add params for the controller:
         """
+        self.running_best = -np.inf
+        self.best_params = [0,0,0,0]
         self.parameters = [0,0,0,0]
         self.C = self.parameters[0]  # constant
         self.X = self.parameters[1]  # drag coeff
@@ -25,27 +32,35 @@ class AngledCustomController(FlightController):
         rewards = 0
         r_min = np.sqrt((drone.x-target[0])**2+(drone.y-target[1])**2) 
         count = 0
-
+        T = 0
         for t in range(self.get_max_simulation_steps()): 
             
             drone.set_thrust(np.clip(self.get_thrusts(drone, parameters), 0, 1))
             target_hit = drone.step_simulation(self.get_time_interval())
             r = np.sqrt((drone.x-target[0])**2+(drone.y-target[1])**2)
-
+            
             if target_hit:
-                rewards+=800
+                print("Target", count, " hit in", T/100, "seconds.")
+                rewards+=10000*(1-T/self.get_max_simulation_steps())
                 target = drone.get_next_target()  
+                T = 0
                 r_min = np.sqrt((drone.x-target[0])**2+(drone.y-target[1])**2) 
                 count +=1
-                print("HIT")
             elif r<(r_min-0.1):
-                rewards+=1/r # this line is the old version
+                rewards+=(1-T/self.get_max_simulation_steps())/r # this line is the old version
                 r_min = r
             else:
                 rewards -=1/r  
-        if (count >= 2):
-            print(count, " targets hit!")#
-            print(parameters)
+            T+=1    
+            
+    
+        print(count, " targets hit! Parameters = ", parameters, "Reward: ", rewards)
+       
+
+        
+        if rewards> self.running_best:
+            self.running_best = rewards
+            self.best_params = parameters
         return rewards, count
     
     def crossover(self, survivors):
@@ -67,14 +82,13 @@ class AngledCustomController(FlightController):
     def mutate(self, survivors, generation):
         mutated_solutions = np.empty((0,4))
         
-        mutation_rates = [0.3,5,0.3,5]
+        mutation_rates = [0.3,5,5,5]
         for i in range(len(survivors[:,0])):
             mutations = np.empty((5,4))
             for g in range(4):
                 sd = mutation_rates[g]*(1.5-generation/self.number_generations) 
                 mutations[:,g] = abs(np.random.normal(survivors[i,g],sd, 5)) #   FIX VARIANCE
             mutated_solutions[:,0] = np.clip(mutated_solutions[:,0], 0, 1)
-            mutated_solutions[:,2] = np.clip(mutated_solutions[:,2], 0, 1)
 
             mutated_solutions = np.vstack((mutated_solutions, mutations))
         return mutated_solutions
@@ -104,9 +118,9 @@ class AngledCustomController(FlightController):
         #start by setting random parameters, for 100 solutions    
         self.number_generations = number_of_episodes
         C_vals = np.linspace(0, 1, int(self.pop_size**0.25)) # hovering constant
-        X_vals = Y_vals = np.linspace(0, 100, int(self.pop_size**0.25)) # direction constants
-        S_vals = np.linspace(0,10, int(self.pop_size**0.25)) # rotation stabalisation constants
-        Y_vals = C_vals
+        X_vals = np.linspace(0, 100, int(self.pop_size**0.25)) # direction constants
+        S_vals = np.linspace(0, 100, int(self.pop_size**0.25)) # rotation stabalisation constants
+        Y_vals = S_vals
         CC, XX, YY, SS = np.meshgrid(C_vals, X_vals, Y_vals, S_vals)
         solutions = np.vstack((CC.flatten(), XX.flatten(), 
                                YY.flatten(), SS.flatten()))
@@ -134,19 +148,46 @@ class AngledCustomController(FlightController):
         target = drone.get_next_target()
         dx = (target[0] - drone.x)
         dy = (target[1] - drone.y)
-    
+        r = (dx**2 + dy**2)**0.5
+        drone_speed = np.sqrt((drone.velocity_x**2)+(drone.velocity_y**2))
+
         try:
-            theta_target = np.arctan(dx/abs(dy))
+            ratio = dx/abs(dy)
+            theta_target = np.arctan(ratio)
         except ZeroDivisionError:
             theta_target = 0
         theta_rel = theta_target - drone.pitch
-
+        
+        if (drone.velocity_x or drone.velocity_y) == 0:
+            # handle the static starts: stops 0/0  runtime error
+            retro_thrust = 0
+        else:  
+            try:
+                ratio = drone.velocity_x/abs(drone.velocity_y)
+                theta_velocity = np.arctan(ratio)
+            except ZeroDivisionError:
+                theta_velocity = 0
+            theta_rel_vel = theta_velocity - drone.pitch
+            theta_retro_thrust = -1*theta_rel_vel
+            #print((theta_retro_thrust+drone.pitch)*180/np.pi)
+            retro_thrust = X*theta_retro_thrust
+            #print(retro_thrust/( C + X*theta_rel - S*drone.pitch_velocity))
+            
+            if (drone.velocity_y*dy >0):
+                if dy>0:
+                    retro_thrust -= C/2
+                else:
+                    retro_thrust += C/2
+            else:
+                pass
+            
         if dy>0:
-            T1 = C + X*theta_rel - S*drone.pitch_velocity
-            T2 = C - X*theta_rel + S*drone.pitch_velocity
+            T1 = C + X*theta_rel - S*drone.pitch_velocity + Y*retro_thrust*np.exp((-r**2))*drone_speed
+            T2 = C - X*theta_rel + S*drone.pitch_velocity - Y*retro_thrust*np.exp((-r**2))*drone_speed
         else:
-            T1 = C/2 + X*theta_rel - S*drone.pitch_velocity
-            T2 = C/2 - X*theta_rel + S*drone.pitch_velocity
+            T1 = C/2 + X*theta_rel - S*drone.pitch_velocity + Y*retro_thrust*np.exp((-r**2))*drone_speed
+            T2 = C/2 - X*theta_rel + S*drone.pitch_velocity - Y*retro_thrust*np.exp((-r**2))*drone_speed
+        
         return np.clip([T1,T2], 0, 1)
             
     def load(self):
@@ -157,6 +198,7 @@ class AngledCustomController(FlightController):
 def run_for(episodes):
     c = AngledCustomController()
     sols, gen_rs, rs, survivors = c.train(episodes)
+    print(c.best_params)
     return gen_rs, sols, rs, survivors
 
 
@@ -166,6 +208,7 @@ if __name__ == "__main__":
     gens, sols, rs, survivors = run_for(episodes)
     
     sol = np.mean(survivors, axis = 0)
+    
     
     
     fig = plt.figure()
@@ -185,4 +228,7 @@ if __name__ == "__main__":
     p23.scatter(sol[2], sol[3])
 
 
+e = time.time()
 
+dur = e-s
+print(dur)
