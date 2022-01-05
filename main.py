@@ -73,7 +73,7 @@ def main(controller: FlightController):
 
         # --- Begin Physics --- # 76.29235801, 13.15436051, 32.61730132, 15.70277749
         # Get the thrust information from the controller
-        drone.set_thrust(controller.get_thrusts(drone,[ 1.1281921,  13.03197756,  0.27684756, 16.74825899])) #changed to add params
+        drone.set_thrust(controller.get_thrusts(drone, [ 0.7700668,  22.72035386,  6.31862802, 77.58529301])) #changed to add params
         # Update the simulation
         drone.step_simulation(delta_time)
 
